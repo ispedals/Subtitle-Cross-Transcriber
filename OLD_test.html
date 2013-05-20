@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+    * { margin:0; padding:0; }
+    textarea { margin-top:10px; }
+    #sidebar { float:right; width:50%; }
+    #original { width:90%; height:100px; }
+    #scratch { width:90%; height:250px; }
+    #bar { clear:both; }
+    video { width:45%; float:left; }
+    #transcription { height:100px; width:99%; }
+</style>
+<script src="http://ajax.microsoft.com/ajax/jquery/jquery-1.4.2.min.js" type="text/javascript"></script>
+<script src="https://github.com/jeresig/jquery.hotkeys/raw/master/jquery.hotkeys.js" type="text/javascript"></script>
+<script src="file:///diest.js" type="text/javascript"></script>
+<script>
+var uri='file:///fma\\fma18.ass';
+
+$.ajax({
+    type: "GET",
+    url: uri,
+    success: function(x) {
+        if(x.length===0) {
+            console.error('Could not load: %s',uri);
+        }
+        else {
+            handleSubtitles(x);
+        }
+    },
+    error: function(x) {console.error('Could not load: %s',uri); }
+});
+
+function handleSubtitles(file) {
+    if(ASSParser.canParse(file)) {
+        ASSParser.parse(file, function(lines){
+            nodes=lines;
+        });
+    }
+}
+
+var nodes=[];
+var video;
+
+var current_node;
+var current=-1;
+
+function playtoDuration(start, end, seek) {
+    var seek= seek || false;
+    if (seek) {
+        video.currentTime=start;
+        video.play();
+        return;
+    }
+    if((!video.paused || !video.ended) && video.currentTime>=start && video.currentTime<=end){
+        setTimeout(function(){playtoDuration(start, end);}, 0);
+    }
+    else {
+        video.pause();
+    }
+}
+function updateBoxes() {
+    if (video.paused || video.ended) {
+        return;
+    }
+    var ret=get_current_node(nodes, video.currentTime);
+    if(ret['node'] !== null) {
+        current_node=ret['node'];
+        current=ret['position'];
+        $('#retime').removeAttr('checked');
+        if(current_node['retime']) {
+            $('#retime').attr('checked','checked');
+        }
+        $('#noActor').attr('selected','selected');
+        if(current_node['actor']) {
+            var opt=$('#actors > option[value="' + current_node['actor'] +'"]');
+            if(opt) {
+                opt.attr('selected','selected');
+            }
+            else {
+                $('<option value="' +current_node['actor'] +'">'+current_node['actor']+'</option>').appendTo($('#actors')).attr('selected','selected');
+            }
+        }
+        $('#original').val(current_node['text']);
+        if(current_node['transcription']) {
+            $('#transcription').val(current_node['transcription']);
+        }
+        else {
+            $('#transcription').val('');
+        }
+            
+        playtoDuration(current_node['start'],current_node['end']);
+    }
+    else {
+        //$('#original, #transcription').val('');
+        setTimeout(updateBoxes, 0);
+    }
+}
+
+function get_current_node(nodes, time) {
+    var node=null;
+    var i;
+    for(i=0; i<nodes.length; i++) {
+        if(time>=nodes[i]['start'] && time<=nodes[i]['end']) {
+            node=nodes[i];
+            break;
+        }
+    }
+    return {'node':node, 'position':i};
+}
+
+
+$(document).ready(function(){
+    $('video').bind('play', function() {
+        setTimeout(updateBoxes, 0);
+    });
+    
+    $('#retime').change(function() {
+        if(current_node) {
+            current_node['retime']=this.checked;
+        }
+    });
+    
+    $('#submitActor').click(function() {
+        if(current_node) {
+            var actor=$('#actor').val().trim();
+            if(actor !== '') {
+                $('<option value="' +actor +'">'+actor+'</option>').appendTo($('#actors')).attr('selected','selected');
+                current_node['actor']=actor;
+            }
+            $('#actor').val('');
+        }
+    });
+    
+    $('#previous').click(function() {
+        if(typeof(current) !== 'undefined') {
+            current= current>0 ? current-1 : 0;
+            current_node=nodes[current];
+            playtoDuration(current_node['start'],current_node['end'],true);
+        }
+    });
+    
+    $('#play').click(function() {
+        if(current_node) {
+            playtoDuration(current_node['start'],current_node['end'],true);
+        }
+    });
+
+    $('#next').click(function() {
+        if(typeof(current) !== 'undefined') {
+            current= current === nodes.length -1 ? nodes.length -1 : current+1;
+            current_node=nodes[current];
+            playtoDuration(current_node['start'],current_node['end'],true);
+        }
+    });    
+    
+    $('#reading').click(function() {
+        $.getJSON("http://localhost:8080?jsoncallback=?",
+        {
+            text: $('#transcription').val(),
+        },
+        function(data) {
+            $('#transcription').val(data);
+        });
+    });
+    
+    $('#transcription').keydown(function() {
+        if(current_node) {
+            current_node['transcription']=$(this).val();
+        }
+    });
+    
+    var elems=$($.merge($(document),$('#original, #scratch, #retime, #actors, #actor, #transcription')));
+    
+    elems.bind('keypress', 'ctrl+,', function(){
+        $('#previous').click();
+        return false;
+    });
+        
+    elems.bind('keypress', 'ctrl+/', function(){
+        $('#play').click();
+        return false;
+    });
+    
+    elems.bind('keypress', 'ctrl+.', function(){
+        $('#next').click();
+        return false;
+    });
+    
+    elems.bind('keypress', 'ctrl+m', function(){
+        $('#reading').click();
+        return false;
+    });
+
+    video=$('video')[0];   
+    $('#retime').removeAttr('checked');
+});
+</script>
+</head>
+<body>
+<video controls src="file:///fma\Fullmetal Alchemist - Fullmetal Alchemist (SUB) - 18 - Marco.theora.ogv"></video>
+<div id='sidebar'>
+<h2>Original</h2>
+<textarea id='original' readonly></textarea>
+<h2>Scratch area</h2>
+<textarea id='scratch'></textarea>
+</div>
+<div id='bar'>
+Need to retime&nbsp;<input id='retime' type='checkbox' />&nbsp;|
+<select id='actors'>
+<option id='noActor' value='' selected></option>
+</select> or input actor&nbsp;
+<input id='actor' type='text' />&nbsp;<a href='#' id='submitActor'>enter</a>|
+<a href='#' id='previous'><<</a>&nbsp;
+<a href='#' id='play'>play</a>&nbsp;
+<a href='#' id='next'>>></a>&nbsp;|
+<a href='#' id='reading'>Generate Reading</a>
+</div>
+<h2>Text</h2>
+<textarea  id='transcription'></textarea>
+</body>
+</html>
